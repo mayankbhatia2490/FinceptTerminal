@@ -91,9 +91,6 @@ void WindowFrame::on_auth_state_changed() {
                                         .arg(pin_gate_cleared_));
             return;
         }
-        if (stack_->currentIndex() == 0 && auth_stack_->currentIndex() == 3)
-            return; // user is on pricing screen — let PricingScreen handle it
-
         // ── PIN gate: require PIN setup or PIN unlock before proceeding ──
         // On first login (no PIN configured): show mandatory PIN setup.
         // On subsequent launches (PIN exists): show PIN unlock.
@@ -119,51 +116,36 @@ void WindowFrame::on_auth_state_changed() {
             }
         }
 
-        if (auth.session().has_paid_plan()) {
-            // Defensive: at this point the PIN gate above must have either
-            // routed us to the lock screen (and returned) or confirmed
-            // pin_gate_cleared_. If we are about to show the shell while
-            // still locked or ungated, log a warning so the regression is
-            // visible rather than leaking the dashboard for one frame.
-            if (locked_ || !pin_gate_cleared_) {
-                LOG_WARN("WindowFrame",
-                         QString("on_auth_state_changed: shell would become visible while "
-                                 "locked=%1 gate_cleared=%2 — forcing lock screen")
-                             .arg(locked_).arg(pin_gate_cleared_));
-                if (auth::PinManager::instance().has_pin())
-                    lock_screen_->show_unlock();
-                else
-                    lock_screen_->show_setup();
-                locked_ = true;
-                set_shell_visible(false);
-                stack_->setCurrentIndex(3);
-                return;
-            }
-
-            // Paid user → straight to dashboard
-            set_shell_visible(true);
-            stack_->setCurrentIndex(1);
-            // Cold-boot restore: try last_loaded layout, then most recent
-            // auto snapshot, then no-op (first run).
-            layout::WorkspaceShell::load_last_or_default();
-            // Trigger silent update check after login (delayed so UI settles first).
-            // UpdateService de-dupes silent checks across the session, so the
-            // post-PIN-unlock path below won't fire a second request.
-            QTimer::singleShot(3000, this, [this]() {
-                services::UpdateService::instance().set_dialog_parent(this);
-                services::UpdateService::instance().check_for_updates(true);
-            });
-            // Warm instrument cache in background — only loaded if not already cached.
-            // Runs concurrently while the user reads the dashboard (3-5s head start).
-            fincept::trading::InstrumentService::instance().load_from_db_async("zerodha");
-            fincept::trading::InstrumentService::instance().load_from_db_async("angelone");
-            fincept::trading::InstrumentService::instance().load_from_db_async("groww");
-        } else {
-            // Free/no plan → show pricing gate
+        // Defensive: at this point the PIN gate above must have either
+        // routed us to the lock screen (and returned) or confirmed
+        // pin_gate_cleared_. If we are about to show the shell while
+        // still locked or ungated, log a warning so the regression is
+        // visible rather than leaking the dashboard for one frame.
+        if (locked_ || !pin_gate_cleared_) {
+            LOG_WARN("WindowFrame",
+                     QString("on_auth_state_changed: shell would become visible while "
+                             "locked=%1 gate_cleared=%2 — forcing lock screen")
+                         .arg(locked_).arg(pin_gate_cleared_));
+            if (auth::PinManager::instance().has_pin())
+                lock_screen_->show_unlock();
+            else
+                lock_screen_->show_setup();
+            locked_ = true;
             set_shell_visible(false);
-            stack_->setCurrentIndex(0);
-            auth_stack_->setCurrentIndex(3);
+            stack_->setCurrentIndex(3);
+            return;
         }
+
+        set_shell_visible(true);
+        stack_->setCurrentIndex(1);
+        layout::WorkspaceShell::load_last_or_default();
+        QTimer::singleShot(3000, this, [this]() {
+            services::UpdateService::instance().set_dialog_parent(this);
+            services::UpdateService::instance().check_for_updates(true);
+        });
+        fincept::trading::InstrumentService::instance().load_from_db_async("zerodha");
+        fincept::trading::InstrumentService::instance().load_from_db_async("angelone");
+        fincept::trading::InstrumentService::instance().load_from_db_async("groww");
     } else {
         // Disable inactivity guard when logged out and drop the locked flag
         // so a subsequent login is not immediately router-blocked.
@@ -323,34 +305,22 @@ void WindowFrame::on_terminal_unlocked() {
     // Reset PIN lockout on successful unlock
     auth::PinManager::instance().reset_lockout();
 
-    if (auth.session().has_paid_plan()) {
-        set_shell_visible(true);
-        stack_->setCurrentIndex(1);
-        // Restore chat bubble based on setting
-        if (chat_bubble_) {
-            auto r = SettingsRepository::instance().get("appearance.show_chat_bubble");
-            bool show = !r.is_ok() || r.value() != "false";
-            chat_bubble_->setVisible(show);
-            if (show) {
-                chat_bubble_->reposition();
-                chat_bubble_->raise();
-            }
+    set_shell_visible(true);
+    stack_->setCurrentIndex(1);
+    if (chat_bubble_) {
+        auto r = SettingsRepository::instance().get("appearance.show_chat_bubble");
+        bool show = !r.is_ok() || r.value() != "false";
+        chat_bubble_->setVisible(show);
+        if (show) {
+            chat_bubble_->reposition();
+            chat_bubble_->raise();
         }
-        // Cold-boot restore via the new system (frame layouts, panels, dock
-        // state, monitor variants).
-        layout::WorkspaceShell::load_last_or_default();
-        // Silent update check — UpdateService de-dupes across call sites so
-        // the login path + this post-unlock path won't fire two requests.
-        QTimer::singleShot(3000, this, [this]() {
-            services::UpdateService::instance().set_dialog_parent(this);
-            services::UpdateService::instance().check_for_updates(true);
-        });
-    } else {
-        // Free/no plan → pricing gate
-        set_shell_visible(false);
-        stack_->setCurrentIndex(0);
-        auth_stack_->setCurrentIndex(3);
     }
+    layout::WorkspaceShell::load_last_or_default();
+    QTimer::singleShot(3000, this, [this]() {
+        services::UpdateService::instance().set_dialog_parent(this);
+        services::UpdateService::instance().check_for_updates(true);
+    });
 
     // Flip the process-wide locked flag LAST. Sibling MainWindows fan out
     // via terminal_locked_changed → apply_lock_state(false) and restore
