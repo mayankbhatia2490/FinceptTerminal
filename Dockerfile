@@ -251,7 +251,11 @@ ENTRYPOINT ["/usr/local/bin/fincept-entrypoint.sh"]
 # Access: http://<NAS-IP>:6080/vnc.html
 FROM runtime AS nas
 
+# uv version must match kUvVersion in PythonSetupManager.h
+ARG UV_VERSION=0.7.12
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
         xvfb \
         x11vnc \
         novnc \
@@ -259,17 +263,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-download uv into a system path so the app never needs to fetch it at
+# runtime. The entrypoint seeds it into the app data dir on first launch.
+# Stored outside the volume-mounted data dir so it survives volume mounts.
+RUN mkdir -p /opt/fincept-uv-seed \
+    && curl -fsSL \
+       "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
+       | tar -xz --strip-components=1 -C /opt/fincept-uv-seed \
+    && chmod +x /opt/fincept-uv-seed/uv \
+    && /opt/fincept-uv-seed/uv --version
+
 ENV VNC_PORT=5900 \
     NOVNC_PORT=6080 \
     VNC_PASSWORD="" \
     DISPLAY=:1 \
     SCREEN_RES=1280x800 \
     SCREEN_DEPTH=24 \
-    NOVNC_HOME=/usr/share/novnc
+    NOVNC_HOME=/usr/share/novnc \
+    FINCEPT_DATA_DIR=/root/.local/share/com.fincept.terminal
 
 RUN { \
       echo '#!/bin/bash'; \
       echo 'set -e'; \
+      echo '# Seed pre-baked uv into the app data dir if not already present.'; \
+      echo '# This avoids a runtime GitHub download on first launch.'; \
+      echo 'UV_DEST="${FINCEPT_DATA_DIR:-/root/.local/share/com.fincept.terminal}/uv/uv"'; \
+      echo 'if [ ! -f "${UV_DEST}" ]; then'; \
+      echo '  mkdir -p "$(dirname "${UV_DEST}")"'; \
+      echo '  cp /opt/fincept-uv-seed/uv "${UV_DEST}"'; \
+      echo '  chmod +x "${UV_DEST}"'; \
+      echo '  echo "==> uv seeded from image cache"'; \
+      echo 'fi'; \
       echo 'export DISPLAY="${DISPLAY:-:1}"'; \
       echo 'Xvfb "${DISPLAY}" -screen 0 "${SCREEN_RES:-1280x800}x${SCREEN_DEPTH:-24}" -ac +extension GLX +render -noreset &'; \
       echo 'for i in $(seq 1 20); do xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1 && break; sleep 0.3; done'; \
