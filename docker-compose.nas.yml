@@ -1,0 +1,40 @@
+# Fincept Terminal — Synology NAS deployment (DS220+ and compatible)
+#
+# Prerequisites on your NAS:
+#   1. Install "Container Manager" from Synology Package Center (DSM 7.2+)
+#   2. SSH into the NAS or use Container Manager → Project → Create
+#
+# Quick start (SSH):
+#   docker compose -f docker-compose.nas.yml up -d
+#
+# Access:
+#   Open http://<NAS-IP>:6080/vnc.html in any browser on your network
+#   Enter the password you set in VNC_PASSWORD below
+#
+# Pull pre-built image (faster than building on the NAS):
+#   docker pull ghcr.io/fincept-corporation/finceptterminal:nas-latest
+#   then set image: instead of build: below
+
+services:
+  fincept-terminal:
+    build:
+      context: .
+      target: nas
+    # Uncomment to use the pre-built GHCR image instead of building locally:
+    # image: ghcr.io/fincept-corporation/finceptterminal:nas-latest
+    container_name: fincept-terminal
+    ports:
+      - "6080:6080"   # noVNC web UI — primary access point
+      - "5900:5900"   # VNC direct (optional, for dedicated VNC clients)
+    environment:
+      - VNC_PASSWORD=changeme   # Change this before deploying
+      - SCREEN_RES=1280x800
+    volumes:
+      - fincept_data:/root/.config/fincept
+      - fincept_data:/root/.local/share/fincept
+    restart: unless-stopped
+    shm_size: '256mb'
+
+volumes:
+  fincept_data:
+    name: fincept_data
