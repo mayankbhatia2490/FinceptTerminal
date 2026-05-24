@@ -30,8 +30,7 @@ services:
       - VNC_PASSWORD=changeme   # Change this before deploying
       - SCREEN_RES=1280x800
     volumes:
-      - fincept_data:/root/.config/fincept
-      - fincept_data:/root/.local/share/fincept
+      - fincept_data:/root/.local/share/com.fincept.terminal
     restart: unless-stopped
     shm_size: '256mb'
 
