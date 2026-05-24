@@ -8,7 +8,7 @@
 #   docker compose -f docker-compose.nas.yml up -d
 #
 # Access:
-#   Open http://<NAS-IP>:6080/vnc.html in any browser on your network
+#   Open http://<NAS-IP>:6080/ in any browser — auto-connects, fills the window
 #   Enter the password you set in VNC_PASSWORD below
 #
 # Pull pre-built image (faster than building on the NAS):
@@ -28,7 +28,7 @@ services:
       - "5900:5900"   # VNC direct (optional, for dedicated VNC clients)
     environment:
       - VNC_PASSWORD=changeme   # Change this before deploying
-      - SCREEN_RES=1280x800
+      - SCREEN_RES=1920x1080
     volumes:
       - fincept_data:/root/.local/share/com.fincept.terminal
     restart: unless-stopped

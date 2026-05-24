@@ -277,10 +277,21 @@ ENV VNC_PORT=5900 \
     NOVNC_PORT=6080 \
     VNC_PASSWORD="" \
     DISPLAY=:1 \
-    SCREEN_RES=1280x800 \
+    SCREEN_RES=1920x1080 \
     SCREEN_DEPTH=24 \
     NOVNC_HOME=/usr/share/novnc \
     FINCEPT_DATA_DIR=/root/.local/share/com.fincept.terminal
+
+# Create a minimal web root that wraps noVNC:
+#   /  → auto-redirects to vnc.html with autoconnect + scale + no toolbar
+# The actual noVNC static assets are served from the system novnc dir via symlink.
+RUN mkdir -p /opt/fincept-web \
+    && ln -s /usr/share/novnc/core   /opt/fincept-web/core \
+    && ln -s /usr/share/novnc/vendor /opt/fincept-web/vendor \
+    && ln -s /usr/share/novnc/app    /opt/fincept-web/app 2>/dev/null || true \
+    && cp /usr/share/novnc/vnc.html  /opt/fincept-web/vnc.html \
+    && printf '<!DOCTYPE html>\n<html><head>\n<meta charset="utf-8">\n<title>Fincept Terminal</title>\n<meta http-equiv="refresh" content="0;url=vnc.html?autoconnect=1&resize=scale&toolbar=false&show_dot=false">\n</head><body style="background:#0a0a0a;color:#d97706;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">\nConnecting to Fincept Terminal…\n</body></html>\n' \
+       > /opt/fincept-web/index.html
 
 RUN { \
       echo '#!/bin/bash'; \
@@ -295,7 +306,7 @@ RUN { \
       echo '  echo "==> uv seeded from image cache"'; \
       echo 'fi'; \
       echo 'export DISPLAY="${DISPLAY:-:1}"'; \
-      echo 'Xvfb "${DISPLAY}" -screen 0 "${SCREEN_RES:-1280x800}x${SCREEN_DEPTH:-24}" -ac +extension GLX +render -noreset &'; \
+      echo 'Xvfb "${DISPLAY}" -screen 0 "${SCREEN_RES:-1920x1080}x${SCREEN_DEPTH:-24}" -ac +extension GLX +render -noreset &'; \
       echo 'for i in $(seq 1 20); do xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1 && break; sleep 0.3; done'; \
       echo 'mkdir -p ~/.vnc'; \
       echo 'if [ -n "${VNC_PASSWORD}" ]; then'; \
@@ -305,8 +316,8 @@ RUN { \
       echo '  VNC_AUTH="-nopw"'; \
       echo 'fi'; \
       echo 'x11vnc -display "${DISPLAY}" ${VNC_AUTH} -rfbport "${VNC_PORT:-5900}" -forever -shared -bg -o /tmp/x11vnc.log -xkb'; \
-      echo 'websockify --web="${NOVNC_HOME:-/usr/share/novnc}" "${NOVNC_PORT:-6080}" "localhost:${VNC_PORT:-5900}" &'; \
-      echo 'echo "==> Fincept Terminal: http://<NAS-IP>:${NOVNC_PORT:-6080}/vnc.html"'; \
+      echo 'websockify --web=/opt/fincept-web "${NOVNC_PORT:-6080}" "localhost:${VNC_PORT:-5900}" &'; \
+      echo 'echo "==> Fincept Terminal: http://<NAS-IP>:${NOVNC_PORT:-6080}/ (auto-connects, no toolbar)"'; \
       echo 'exec /usr/local/bin/fincept-entrypoint.sh "$@"'; \
     } > /usr/local/bin/nas-entrypoint.sh \
     && chmod +x /usr/local/bin/nas-entrypoint.sh
